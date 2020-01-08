@@ -1,18 +1,19 @@
 import pandas as pd
 import numpy as np
+import scipy.stats as stats
+import matplotlib.pyplot as plt
 pd.set_option("display.max_rows",1300)
 pd.set_option("display.max_columns",12000)
-pd.set_option('display.max_rows',12000)
+pd.set_option('display.max_rows',200000)
 pd.set_option('display.width', 320)
 team_info = pd.read_csv('team_info.csv')
 nhl = pd.read_csv('nhl_sorted_by_dates.csv')
-
-# print(nhl.head())
-# lst = []
+odds = pd.read_csv('odds_all_years.csv')
+odds = odds[::2]
 nhl2 = nhl.copy()
 string = '2018-09-30'
 class Season():
-    def __init__(self,df,date='0'):
+    def __init__(self, df, date='0'):
         self.nhl = df
         self.date = date
         df2 = nhl.copy()
@@ -23,8 +24,6 @@ class Season():
         _ = arr[0].split(" ") # turn series object into something useable
         year = _[-1]
         self.final_year = int(year)
-    def just_df(self):
-        return self.nhl
     def last_reg_date(self,reg=0):    #finish to include playoffs
         # split out just the year from date given to class
         splt = self.date.split('-')
@@ -66,7 +65,7 @@ class Season():
         df = self.s
         df['win_loss'] = df.apply(lambda col: self.win_lose(int(col[4]), int(col[5]), int(col[6]), int(col[7]), int(team_id)), axis=1)
         return df
-    def team_streak(self):
+    def team_streak(self,df_form=0):
         lst = self.s.win_loss.tolist()
         ws = [0]
         for i in lst:
@@ -80,54 +79,149 @@ class Season():
             else:
                 ws.append(ws[-1] - 1)
         ws.remove(ws[0])
-        self.s['streak'] = ws
-        return self.s
-        # return ws
+        if df_form==0:
+            return ws
+        else:
+            self.s['streak'] = ws
+            return self.s
+
 del nhl['date_time_GMT']
 del nhl['home_rink_side_start']
 del nhl['venue_link']
 del nhl['venue_time_zone_id']
 yr = '2010'
-tms = {}
+start = '-09-30'
+
+# create teams dictionary --either of season or streak ...
+def data_form(df,yr,start,default=1,df_or_dict=0):
+    tms = {}
+    nhl = df
+    if default != 0:
+        for i in range(9):
+            season = Season(nhl,(yr + start))
+            end = season.end_reg_season.get(str(int(yr)+1))
+            for j in season.get_team_ids():
+                dt = str(int(yr)+1)+'-04-'+str(end)
+                season.season_team(j, stop=dt)
+                season.create_win_column(j)
+                name = team_info[(team_info['team_id']==j)].abbreviation.max()
+                if df_or_dict == 0:
+                    tms.update({name +'-'+ yr :season.team_streak()})
+                else:
+                    tms.update({name +'-'+ yr :season.team_streak(df_form=1)})
+            yr = str(int(yr)+1)
+    else:
+        season = Season(nhl, (yr + start))
+        for j in season.get_team_ids():
+            for i in range(9):
+                end = season.end_reg_season.get(str(int(yr) + 1))
+                dt = str(int(yr) + 1) + '-04-' + str(end)
+                season.season_team(j, stop=dt)
+                season.create_win_column(j)
+                name = team_info[(team_info['team_id'] == j)].abbreviation.max()
+                if df_or_dict == 0:
+                    tms.update({name + '-' + yr: season.team_streak()})
+                else:
+                    tms.update({name + '-' + yr: season.team_streak(df_form=1)})
+                yr = str(int(yr) + 1)
+    return tms
+
+def win_streak_per_team_per_season(dct,st,w=1):
+    overall = []
+    total_winstreaks_per_team_per_season = {}
+    if w ==1:
+#  ******* winning streaks ********
+        for i in dct:
+            lst = []
+            strk = dct.get(i)
+            for j in range(len(strk)):
+                if j != len(strk)-1:
+                    if strk[j] >= st and strk[j+1]!=strk[j]+1:
+                        lst.append(strk[j])
+                        overall.append(strk[j])
+                else:
+                    if strk[j]>= st and strk[j-1]==strk[j]-1:
+                        lst.append(strk[j])
+                        overall.append(strk[j])
+            total_winstreaks_per_team_per_season.update({i:lst})
+    else:
+# ******* losing streaks ********
+        for i in dct:
+            lst = []
+            strk = dct.get(i)
+            for j in range(len(strk)):
+                if j != len(strk)-1:
+                    if strk[j] <= st and strk[j+1]!=strk[j]-1:
+                        lst.append(strk[j])
+                        overall.append(strk[j])
+                else:
+                    if strk[j]<= st and strk[j-1]==strk[j]+1:
+                        lst.append(strk[j])
+                        overall.append(strk[j])
+            total_winstreaks_per_team_per_season.update({i:lst})
+    return total_winstreaks_per_team_per_season , overall
+
+def percentage(dct,lst, cnt1,cnt2=0,cnt3=0):
+    count_teams_with_none = 0
+    team_means = []
+    for i in dct:
+        c1 = dct.get(i).count(cnt1)
+        c2 = dct.get(i).count(cnt2)
+        c3 = dct.get(i).count(cnt3)
+        dct.get(i)
+        print(i)
+        if len(dct.get(i)) == 0:
+            count_teams_with_none+=1
+        else:
+            perc = (c1+c2+c3)/len(dct.get(i))
+            team_means.append(perc)
+            for j in dct.get(i):
+                print(j)
+            print(perc)
+    print(stats.average(team_means))
+    print(count_teams_with_none)
+teams = data_form(nhl,yr,start,df_or_dict=1)
+print(teams)
+# teams = data_form(nhl,yr,start)
+# dct,lst = win_streak_per_team_per_season(teams,-3,w=0)
+# st_len=[]
+# cnts=[]
+# print(lst)
+# for i in range(-3,min(lst)-1,-1):
+#     st_len.append(i)
+#     cnts.append(lst.count(i))
+# print(lst.count(-3),st_len,cnts)
+# print((lst.count(-3))/len(lst))
+# fig, ax = plt.subplots(1,1)
+# ax.hist(st_len,cnts)
+# plt.show()
+# plt.bar(st_len,cnts)
+# plt.show()
+
+# +dct.get(i).count(5)+dct.get(i).count(6)
+# df = pd.DataFrame()
+# for i in tms:
+#     df = df.append(tms.get(i))
+# df.to_csv('df.csv',encoding='utf-8')
+d={}
+# for i in tms:
+#     if i.endswith('2010'):
+#         j = tms.get(i)
+#         for f in range(17):
+#             tot = j.count(f)
+#             d.update({f:})
+# total_winstreaks_per_team_per_season = {}
+# def win_streak_per_season_per_team(dct,st,w=1):
+df = pd.read_csv('df.csv')
+all_teams_by_season = df.copy()
 # df = nhl
 # season = df[(df['date_time'] > '2010-09-30') & (df['date_time'] < '2010-10-08')]
 # print(season)
-for i in range(1):
-    season = Season(nhl,(yr +'-09-30'))
-    end = season.end_reg_season.get(str(int(yr)+1))
-    for j in season.get_team_ids():
-        dt = str(int(yr)+1)+'-04-'+str(end)
-        season.season_team(j, stop=dt)
-        season.create_win_column(j)
-        name = team_info[(team_info['team_id']==j)].abbreviation.max()
-        tms.update({name +'-'+ yr :season.team_streak()})
-    yr = str(int(yr)+1)
-# for i in tms:
-#     print(tms.get(i))
-print(tms.get('COL-2010'))
-# total_winstreaks_over_4_per_team_per_season = {}
-# avs_2018 = tms.get('COL-2018')
-# avs_2018['compare']=avs_2018['streak'].shift(-1)
-# print(avs_2018)
-
-# for i in tms:
-#     lst = []
-#     strk = tms.get(i)
-#     for j in range(len(strk)):
-#         if j != len(strk)-1:
-#             if strk[j] >= 4 and strk[j+1]!=strk[j]+1:
-#                 lst.append(strk[j])
-#         else:
-#             if strk[j]>=4 and strk[j-1]==strk[j]-1:
-#                 lst.append(strk[j])
-#     total_winstreaks_over_4_per_team_per_season.update({i:lst})
-# for i in total_winstreaks_over_4_per_team_per_season:
-#     print(i)
-#     for j in total_winstreaks_over_4_per_team_per_season.get(i):
-#         print(j)
-#     lst = total_winstreaks_over_4_per_team_per_season.get(i)
-#     while j !=4
-
+# on a date check wins assign points to appropriate teams
+# after all points added check conf and sort by points
+# def get_standings():
+# pass in df get back df + standings
+# points dict
 
 # win_streaks = {}
 # stk_arr=[]
@@ -152,7 +246,10 @@ div = pd.read_csv('17-18divs.csv') # how to index a specific table on website th
 # print(div)
 df = pd.read_csv('team_info.csv')
 div_arr = []
-date = '2017-07-01'
+# split conferences
+teams = {}
+# on a date check wins assign points to appropriate teams
+# after all points added check conf and sort by points
 
 # setup divisions by loading in team ids from team info df
 # and getting a team name string from a divs df and comparing them to the team_info df
